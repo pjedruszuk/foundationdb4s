@@ -49,10 +49,13 @@ To get started you can add the following dependencies to your project:
 val fdb4sVersion = "0.9.0"
 
 libraryDependencies ++= Seq(
-  "com.github.pwliwanow.foundationdb4s" %% "foundationdb4s-core" % fdb4sVersion,
-  "com.github.pwliwanow.foundationdb4s" %% "foundationdb4s-akka-streams" % fdb4sVersion
+  "com.github.pwliwanow.foundationdb4s" %% "core" % fdb4sVersion,
+  "com.github.pwliwanow.foundationdb4s" %% "schema" % fdb4sVersion,
+  "com.github.pwliwanow.foundationdb4s" %% "akka-streams" % fdb4sVersion
 )
 ```
+Note that starting from version 0.10.0, modules were renamed 
+from `foundationdb4s-core` to `core` and from `foundationdb4s-akka-streams` to `akka-streams`.
 
 ## Integrations
 - Cats - Monad instances are provided in companion objects for `DBIO` and `ReadDBIO`
@@ -63,6 +66,83 @@ Modifying data within a `TypedSubspace` (`clear` and `set` operations) returns `
 
 Reading from a `TypedSubspace` (`get` and `getRange` operations) returns `ReadDBIO[_]` monad.
 `ReadDBIO[_]` provides method `.toDBIO` for converting `ReadDBIO[_]` into `DBIO[_]`.
+
+## Application level schema
+Module `schema` further improves type-safety by requiring schema 
+(simply HList from [Shapeless](https://github.com/milessabin/shapeless)) 
+for keys (`KeySchema`) and values (`ValueSchema`) that are to be stored within given Subspace.
+
+### Type-safe getRange and clear operations
+Having schema enables safe `getRange` and `clear` operations - those methods take HList (representing prefix) 
+and during compilation it's checked (by requiring implicit parameter) if given prefix starts with the same types 
+as `KeySchema` for a given subspace. E.g. given KeySchema: `String :: Int :: HNil`, 
+it's possible to call `getRange(String :: HNil)`, but `getRange(Int :: HNil)` will fail to compile.
+
+Those operations are available under `SchemaBasedSubspace`.
+
+### Schema evolution and encoders/decoders derivation
+Module `schema` also provides support for automatic derivation of encoders and decoders, 
+derived encoders support schema evolution. 
+
+E.g. if key was written using `TupleEncoder[String :: HNil]`, it is possible to read the key
+ with `TupleDecoder[String :: Option[A] :: HNil]` (where `A` is any type for which `TupleDecoder[A]` exist) or 
+ with `TupleDecoder[String :: List[A] :: HNil]`.
+
+### Custom encoders/decoders
+Implicit `TupleEncoders` and `TupleDecoders` are provided for basic types, 
+such as: `Int`, `Long`, `Boolean` and `String`. 
+It also supports encoders and decoders for `Option[A]` and `List[A]`, 
+given that implicit `TupleEncoder[A]`/`TupleDecoder[A]` exists.
+
+Encoders and decoders can be automatically derived for any case class, given that there exist implicit 
+encoders/decoders for all its members.
+
+### Example with schema-based subspace
+```scala
+import com.github.pwliwanow.foundationdb4s.schema._
+import shapeless.{::, HNil, cachedImplicit}
+
+implicit val ec = scala.concurrent.ExecutionContext.global
+val database: Database = FDB.selectAPIVersion(610).open(null, ec)
+
+final case class BookKey(language: String, isbn: String)
+final case class Book(key: BookKey, title: String, publishedOn: LocalDate)
+
+object BookSchema extends DefaultCodecs {
+  type Key = String :: String :: HNil
+  type Value = String :: LocalDate :: HNil
+
+  implicit val localDateEnc = implicitly[TupleEncoder[String]].contramap[LocalDate](_.toString)
+  implicit val localDateDec = implicitly[TupleDecoder[String]].map(LocalDate.parse)
+
+  implicit lazy val keySchemaEnc = cachedImplicit[TupleEncoder[Key]]
+  implicit lazy val keySchemaDec = cachedImplicit[TupleDecoder[Key]]
+  implicit lazy val valueSchemaEnc = cachedImplicit[TupleEncoder[Value]]
+  implicit lazy val valueSchemaDec = cachedImplicit[TupleDecoder[Value]]
+  implicit lazy val languagePrefix = cachedImplicit[Prefix[Key, String :: HNil]]
+}
+import BookSchema._
+
+val booksSubspace = new SchemaBasedSubspace[Book, BookKey, BookSchema.Key, BookSchema.Value] {
+  override val subspace: Subspace = new Subspace(Tuple.from("books"))
+  override def toKey(entity: Book): BookKey = entity.key
+  override def toKey(keyRepr: BookSchema.Key): BookKey = {
+    val language :: isbn :: HNil = keyRepr
+    BookKey(language, isbn)
+  }
+  override def toSubspaceKeyRepr(key: BookKey): BookSchema.Key =
+    key.language :: key.isbn :: HNil
+  override def toSubspaceValueRepr(entity: Book): BookSchema.Value =
+    entity.title :: entity.publishedOn :: HNil
+  override def toEntity(key: BookKey, valueRepr: BookSchema.Value): Book = {
+    val title :: publishedOn :: HNil = valueRepr
+    Book(key, title, publishedOn)
+  }
+}
+
+val dbio: DBIO[Seq[Book]] = bookSubspace.getRange("EN" :: HNil)
+val englishBooks: Future[Seq[Book]] = dbio.transact(database)
+```
 
 ## Parallel requests
 Sometimes it may prove useful to perform operations in parallel (e.g. in case of independent `gets`). 
@@ -170,9 +250,8 @@ More information about watches can be found in
 [FoundationDB developer guide](https://apple.github.io/foundationdb/developer-guide.html#watches) and
 [FoundationDB Javadoc](https://apple.github.io/foundationdb/javadoc/com/apple/foundationdb/Transaction.html#watch-byte:A-).  
 
-## Reading large amount of data
-If you want to stream data from a subspace, it can take longer than FoundationDb transaction time limit,
-and your data is immutable and append only, or if approximation is good enough for your use case, 
+## Reading big amount of data
+If you want to stream data from a subspace, it can take longer than FoundationDb transaction time limit, your data is immutable and append only, or if approximation is good enough for your use case, 
 you can use either use `SubspaceSource` (from akka-streams module) 
 or you can use `RefreshingSubspaceStream` (from core module).
 
