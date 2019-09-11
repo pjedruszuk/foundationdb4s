@@ -78,8 +78,6 @@ and during compilation it's checked (by requiring implicit parameter) if given p
 as `KeySchema` for a given subspace. E.g. given KeySchema: `String :: Int :: HNil`, 
 it's possible to call `getRange(String :: HNil)`, but `getRange(Int :: HNil)` will fail to compile.
 
-Those operations are available under `SchemaBasedSubspace`.
-
 ### Schema evolution and encoders/decoders derivation
 Module `schema` also provides support for automatic derivation of encoders and decoders, 
 derived encoders support schema evolution. 
@@ -109,32 +107,26 @@ final case class BookKey(language: String, isbn: String)
 final case class Book(key: BookKey, title: String, publishedOn: LocalDate)
 
 object BookSchema extends DefaultCodecs {
-  type Key = String :: String :: HNil
-  type Value = String :: LocalDate :: HNil
+  type KeySchema = String :: String :: HNil
+  type ValueSchema = String :: LocalDate :: HNil
 
   implicit val localDateEnc = implicitly[TupleEncoder[String]].contramap[LocalDate](_.toString)
   implicit val localDateDec = implicitly[TupleDecoder[String]].map(LocalDate.parse)
-
-  implicit lazy val keySchemaEnc = cachedImplicit[TupleEncoder[Key]]
-  implicit lazy val keySchemaDec = cachedImplicit[TupleDecoder[Key]]
-  implicit lazy val valueSchemaEnc = cachedImplicit[TupleEncoder[Value]]
-  implicit lazy val valueSchemaDec = cachedImplicit[TupleDecoder[Value]]
-  implicit lazy val languagePrefix = cachedImplicit[Prefix[Key, String :: HNil]]
 }
 import BookSchema._
 
-val booksSubspace = new SchemaBasedSubspace[Book, BookKey, BookSchema.Key, BookSchema.Value] {
+val booksSubspace = new BookSchema.SchemaBasedSubspace[Book, BookKey] {
   override val subspace: Subspace = new Subspace(Tuple.from("books"))
   override def toKey(entity: Book): BookKey = entity.key
-  override def toKey(keyRepr: BookSchema.Key): BookKey = {
+  override def toKey(keyRepr: KeySchema): BookKey = {
     val language :: isbn :: HNil = keyRepr
     BookKey(language, isbn)
   }
-  override def toSubspaceKeyRepr(key: BookKey): BookSchema.Key =
+  override def toSubspaceKeyRepr(key: BookKey): KeySchema =
     key.language :: key.isbn :: HNil
-  override def toSubspaceValueRepr(entity: Book): BookSchema.Value =
+  override def toSubspaceValueRepr(entity: Book): ValueSchema =
     entity.title :: entity.publishedOn :: HNil
-  override def toEntity(key: BookKey, valueRepr: BookSchema.Value): Book = {
+  override def toEntity(key: BookKey, valueRepr: ValueSchema): Book = {
     val title :: publishedOn :: HNil = valueRepr
     Book(key, title, publishedOn)
   }

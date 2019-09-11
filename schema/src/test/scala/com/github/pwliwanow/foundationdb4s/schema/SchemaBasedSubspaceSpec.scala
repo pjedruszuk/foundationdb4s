@@ -7,46 +7,42 @@ import com.apple.foundationdb.KeySelector
 import com.apple.foundationdb.subspace.Subspace
 import com.apple.foundationdb.tuple.Tuple
 import com.github.pwliwanow.foundationdb4s.core.FoundationDbSpec
-import shapeless.{::, HNil, cachedImplicit}
+import shapeless.{::, HNil}
 
-object SchemaBasedSubspaceSpec extends DefaultCodecs {
+object SchemaBasedSubspaceSpec {
   case class UserKey(lastName: String, city: Option[String], yearOfBirth: Option[Int])
   case class User(key: UserKey, registeredAt: Instant)
-
-  type KeySchema = String :: Option[String] :: Option[Int] :: HNil
-  type ValueSchema = Instant :: HNil
-
-  implicit lazy val instantEncoder: TupleEncoder[Instant] =
-    LongEncoder.contramap(_.toEpochMilli)
-  implicit lazy val instantDecoder: TupleDecoder[Instant] =
-    LongDecoder.map(Instant.ofEpochMilli)
-
-  implicit lazy val keyEncoder: TupleEncoder[KeySchema] = cachedImplicit[TupleEncoder[KeySchema]]
-  implicit lazy val keyDecoder: TupleDecoder[KeySchema] = cachedImplicit[TupleDecoder[KeySchema]]
-
-  implicit lazy val valueEncoder: TupleEncoder[ValueSchema] =
-    cachedImplicit[TupleEncoder[ValueSchema]]
-  implicit lazy val valueDecoder: TupleDecoder[ValueSchema] =
-    cachedImplicit[TupleDecoder[ValueSchema]]
-
 }
 
 class SchemaBasedSubspaceSpec extends FoundationDbSpec { spec =>
   import Prefix._
   import SchemaBasedSubspaceSpec._
 
-  private val schemaSubspace = new SchemaBasedSubspace[User, UserKey, KeySchema, ValueSchema] {
+  object Codecs extends DefaultCodecs {
+    implicit lazy val instantEncoder: TupleEncoder[Instant] =
+      LongEncoder.contramap(_.toEpochMilli)
+    implicit lazy val instantDecoder: TupleDecoder[Instant] =
+      LongDecoder.map(Instant.ofEpochMilli)
+  }
+  import Codecs._
+
+  object UserSchema extends Schema {
+    type KeySchema = String :: Option[String] :: Option[Int] :: HNil
+    type ValueSchema = Instant :: HNil
+  }
+
+  private val schemaSubspace = new UserSchema.SchemaBasedSubspace[User, UserKey] {
     override val subspace: Subspace = spec.subspace
     override def toKey(entity: User): UserKey = entity.key
-    override def toKey(keyRepr: KeySchema): UserKey = {
+    override def toKey(keyRepr: UserSchema.KeySchema): UserKey = {
       val city :: name :: yearOfBirth :: HNil = keyRepr
       UserKey(city, name, yearOfBirth)
     }
-    override def toSubspaceKeyRepr(key: UserKey): KeySchema =
+    override def toSubspaceKeyRepr(key: UserKey): UserSchema.KeySchema =
       key.lastName :: key.city :: key.yearOfBirth :: HNil
-    override def toSubspaceValueRepr(entity: User): ValueSchema =
+    override def toSubspaceValueRepr(entity: User): UserSchema.ValueSchema =
       entity.registeredAt :: HNil
-    override def toEntity(key: UserKey, valueSchema: ValueSchema): User = {
+    override def toEntity(key: UserKey, valueSchema: UserSchema.ValueSchema): User = {
       val registeredAt :: HNil = valueSchema
       User(key, registeredAt)
     }
