@@ -98,16 +98,16 @@ encoders/decoders for all its members.
 ### Example with schema-based subspace
 ```scala
 import com.github.pwliwanow.foundationdb4s.schema._
-import shapeless.{::, HNil, cachedImplicit}
+import shapeless.{::, HNil}
 
 implicit val ec = scala.concurrent.ExecutionContext.global
 val database: Database = FDB.selectAPIVersion(610).open(null, ec)
 
-final case class BookKey(language: String, isbn: String)
+final case class BookKey(country: String, language: String, isbn: String)
 final case class Book(key: BookKey, title: String, publishedOn: LocalDate)
 
 object BookSchema extends DefaultCodecs {
-  type KeySchema = String :: String :: HNil
+  type KeySchema = String :: String :: String :: HNil
   type ValueSchema = String :: LocalDate :: HNil
 
   implicit val localDateEnc = implicitly[TupleEncoder[String]].contramap[LocalDate](_.toString)
@@ -119,11 +119,11 @@ val booksSubspace = new BookSchema.SchemaBasedSubspace[Book, BookKey] {
   override val subspace: Subspace = new Subspace(Tuple.from("books"))
   override def toKey(entity: Book): BookKey = entity.key
   override def toKey(keyRepr: KeySchema): BookKey = {
-    val language :: isbn :: HNil = keyRepr
-    BookKey(language, isbn)
+    val country :: language :: isbn :: HNil = keyRepr
+    BookKey(country, language, isbn)
   }
   override def toSubspaceKeyRepr(key: BookKey): KeySchema =
-    key.language :: key.isbn :: HNil
+    key.country :: key.language :: key.isbn :: HNil
   override def toSubspaceValueRepr(entity: Book): ValueSchema =
     entity.title :: entity.publishedOn :: HNil
   override def toEntity(key: BookKey, valueRepr: ValueSchema): Book = {
@@ -132,7 +132,8 @@ val booksSubspace = new BookSchema.SchemaBasedSubspace[Book, BookKey] {
   }
 }
 
-val dbio: DBIO[Seq[Book]] = bookSubspace.getRange("EN" :: HNil)
+val dbio: DBIO[Seq[Book]] = bookSubspace.getRange(("CA", "EN"))
+// or bookSubspace.getRange("CA" :: "EN" :: HNil)
 val englishBooks: Future[Seq[Book]] = dbio.transact(database)
 ```
 
@@ -243,7 +244,7 @@ More information about watches can be found in
 [FoundationDB Javadoc](https://apple.github.io/foundationdb/javadoc/com/apple/foundationdb/Transaction.html#watch-byte:A-).  
 
 ## Reading big amount of data
-If you want to stream data from a subspace, it can take longer than FoundationDb transaction time limit, your data is immutable and append only, or if approximation is good enough for your use case, 
+If you want to stream data from a subspace, it can take longer than FoundationDB transaction time limit, your data is immutable and append only, or if approximation is good enough for your use case, 
 you can use either use `SubspaceSource` (from akka-streams module) 
 or you can use `RefreshingSubspaceStream` (from core module).
 

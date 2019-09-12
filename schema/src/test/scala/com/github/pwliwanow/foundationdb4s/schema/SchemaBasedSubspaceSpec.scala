@@ -87,7 +87,7 @@ class SchemaBasedSubspaceSpec extends FoundationDbSpec { spec =>
     } yield entity.copy(key = entity.key.copy(lastName = otherLastName))
     val allEntities = toClear ++ otherEntities
     addElements(allEntities.map(entityToTuples), subspace)
-    schemaSubspace.clear(lastName :: HNil).transact(database).await
+    schemaSubspace.clear(Tuple1(lastName)).transact(database).await
     val entitiesInDb =
       schemaSubspace.getRange(schemaSubspace.range()).transact(database).await.toSet
     assert(entitiesInDb === otherEntities.toSet)
@@ -103,7 +103,7 @@ class SchemaBasedSubspaceSpec extends FoundationDbSpec { spec =>
     } yield entity.copy(key = entity.key.copy(lastName = otherLastName))
     val allEntities = entities ++ otherEntities
     addElements(allEntities.map(entityToTuples), subspace)
-    val dbio = schemaSubspace.getRange(lastName :: HNil)
+    val dbio = schemaSubspace.getRange(Tuple1(lastName))
     val res = dbio.transact(database).await
     val obtainedKeys = res.map(_.key).toSet
     val expectedKeys = entities.map(_.key).toSet
@@ -121,7 +121,7 @@ class SchemaBasedSubspaceSpec extends FoundationDbSpec { spec =>
     } yield entity.copy(key = entity.key.copy(city = Some(otherCity)))
     val allEntities = entities ++ otherEntities
     addElements(allEntities.map(entityToTuples), subspace)
-    val dbio = schemaSubspace.getRange(lastName :: Option.empty[String] :: HNil)
+    val dbio = schemaSubspace.getRange((lastName, Option.empty[String]))
     val res = dbio.transact(database).await
     val obtainedKeys = res.map(_.key).toSet
     val expectedKeys = entities.map(_.key).toSet
@@ -136,7 +136,7 @@ class SchemaBasedSubspaceSpec extends FoundationDbSpec { spec =>
     val otherEntity3 = User(UserKey("Young", None, None), instant)
     val allEntities = List(otherEntity1, targetEntity, otherEntity2, otherEntity3)
     addElements(allEntities.map(entityToTuples), subspace)
-    val dbio = schemaSubspace.getRange(lastName :: Option.empty[String] :: HNil)
+    val dbio = schemaSubspace.getRange((lastName, Option.empty[String]))
     val res = dbio.transact(database).await
     val obtainedKeys = res.map(_.key).toSet
     val expectedKeys = Set(targetEntity.key)
@@ -153,7 +153,7 @@ class SchemaBasedSubspaceSpec extends FoundationDbSpec { spec =>
     } yield entity.copy(key = entity.key.copy(lastName = otherLastName))
     val allEntities = entities ++ otherEntities
     addElements(allEntities.map(entityToTuples), subspace)
-    val dbio = schemaSubspace.getRange(lastName :: HNil, 10)
+    val dbio = schemaSubspace.getRange(Tuple1(lastName), 10)
     val res = dbio.transact(database).await
     val obtainedKeys = res.map(_.key).toSet
     val expectedKeys = entities.take(10).map(_.key).toSet
@@ -171,7 +171,7 @@ class SchemaBasedSubspaceSpec extends FoundationDbSpec { spec =>
     } yield entity.copy(key = entity.key.copy(city = Some(otherCity)))
     val allEntities = entities ++ otherEntities
     addElements(allEntities.map(entityToTuples), subspace)
-    val dbio = schemaSubspace.getRange(lastName :: Option.empty[String] :: HNil, 5, reverse = true)
+    val dbio = schemaSubspace.getRange((lastName, Option.empty[String]), 5, reverse = true)
     val res = dbio.transact(database).await
     val obtainedKeys = res.map(_.key).toSet
     val expectedKeys = entities.takeRight(5).map(_.key).toSet
@@ -179,25 +179,25 @@ class SchemaBasedSubspaceSpec extends FoundationDbSpec { spec =>
   }
 
   it should "correctly create firstGreaterOrEqual KeySelector" in {
-    val from = schemaSubspace.firstGreaterOrEqual(lastName :: Option.empty[String] :: HNil)
+    val from = schemaSubspace.firstGreaterOrEqual((lastName, Option.empty[String]))
     val expected = KeySelector.firstGreaterOrEqual(subspace.pack(Tuple.from(lastName)))
     assert(from === expected)
   }
 
   it should "correctly create firstGreaterThan KeySelector" in {
-    val from = schemaSubspace.firstGreaterThan(lastName :: Option(city) :: HNil)
+    val from = schemaSubspace.firstGreaterThan((lastName, Option(city)))
     val expected = KeySelector.firstGreaterThan(subspace.pack(Tuple.from(lastName, city)))
     assert(from === expected)
   }
 
   it should "correctly create lastLessOrEqual KeySelector" in {
-    val from = schemaSubspace.lastLessOrEqual(lastName :: Option(city) :: HNil)
+    val from = schemaSubspace.lastLessOrEqual((lastName, Option(city)))
     val expected = KeySelector.lastLessOrEqual(subspace.pack(Tuple.from(lastName, city)))
     assert(from === expected)
   }
 
   it should "correctly create lastLessThan KeySelector" in {
-    val from = schemaSubspace.lastLessThan("name" :: HNil)
+    val from = schemaSubspace.lastLessThan(Tuple1("name"))
     val expected = KeySelector.lastLessThan(subspace.pack(Tuple.from("name")))
     assert(from === expected)
   }
@@ -212,9 +212,9 @@ class SchemaBasedSubspaceSpec extends FoundationDbSpec { spec =>
     } yield entity.copy(key = entity.key.copy(city = Some(otherCity)))
     val allEntities = entities ++ otherEntities
     addElements(allEntities.map(entityToTuples), subspace)
-    val from = schemaSubspace.firstGreaterOrEqual(lastName :: Option.empty[String] :: HNil)
+    val from = schemaSubspace.firstGreaterOrEqual((lastName, Option.empty[String]))
     val to =
-      schemaSubspace.firstGreaterOrEqual(lastName :: Option.empty[String] :: Option(1985) :: HNil)
+      schemaSubspace.firstGreaterOrEqual((lastName, Option.empty[String], Option(1985)))
     val res = schemaSubspace.getRange(from, to).transact(database).await
     val obtainedKeys = res.map(_.key).toSet
     val expectedKeys = entities.take(4).map(_.key).toSet

@@ -9,7 +9,9 @@ import scala.util.Try
 
 object DefaultCodecs extends DefaultCodecs
 
-trait DefaultCodecs extends DefaultEncodersProtocol with DefaultDecodersProtocol
+trait DefaultCodecs extends DefaultEncodersProtocol with DefaultDecodersProtocol {
+  def deriveEncoder[A](implicit ev: TupleEncoder[A]): TupleEncoder[A] = ev
+}
 
 trait TupleEncoder[A] { self =>
   def encode(value: A): Tuple
