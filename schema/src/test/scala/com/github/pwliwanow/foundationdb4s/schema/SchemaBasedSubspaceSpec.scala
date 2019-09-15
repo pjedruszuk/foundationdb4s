@@ -26,27 +26,19 @@ class SchemaBasedSubspaceSpec extends FoundationDbSpec { spec =>
   }
   import Codecs._
 
-  object UserSchema extends Schema {
+  object UserSchema extends Schema[User, UserKey] {
     type KeySchema = String :: Option[String] :: Option[Int] :: HNil
     type ValueSchema = Instant :: HNil
-  }
 
-  private val schemaSubspace = new UserSchema.SchemaBasedSubspace[User, UserKey] {
-    override val subspace: Subspace = spec.subspace
     override def toKey(entity: User): UserKey = entity.key
-    override def toKey(keyRepr: UserSchema.KeySchema): UserKey = {
-      val city :: name :: yearOfBirth :: HNil = keyRepr
-      UserKey(city, name, yearOfBirth)
-    }
-    override def toSubspaceKeyRepr(key: UserKey): UserSchema.KeySchema =
-      key.lastName :: key.city :: key.yearOfBirth :: HNil
-    override def toSubspaceValueRepr(entity: User): UserSchema.ValueSchema =
-      entity.registeredAt :: HNil
-    override def toEntity(key: UserKey, valueSchema: UserSchema.ValueSchema): User = {
-      val registeredAt :: HNil = valueSchema
+    override def toValue(entity: User): ValueSchema = entity.registeredAt :: HNil
+    override def toEntity(key: UserKey, value: ValueSchema): User = {
+      val registeredAt :: HNil = value
       User(key, registeredAt)
     }
   }
+
+  private val schemaSubspace = new UserSchema.SchemaBasedSubspace(spec.subspace)
 
   private val earlierSubspace = new Subspace(Tuple.from("foundationDbEarlierTestSubspace"))
   private val laterSubspace = new Subspace(Tuple.from("foundationDbTestSubspaceLater"))

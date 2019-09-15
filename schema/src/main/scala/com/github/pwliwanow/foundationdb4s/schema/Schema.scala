@@ -1,4 +1,5 @@
 package com.github.pwliwanow.foundationdb4s.schema
+import com.apple.foundationdb.subspace.Subspace
 import com.apple.foundationdb.{KeySelector, Range}
 import com.apple.foundationdb.tuple.Tuple
 import com.github.pwliwanow.foundationdb4s.core.{DBIO, ReadDBIO, TypedSubspace}
@@ -7,28 +8,34 @@ import shapeless.{=:!=, Generic, HList}
 import scala.collection.immutable.Seq
 
 object Schema {
-  type Aux[Key <: HList, Value <: HList] = Schema { type KeySchema = Key; type ValueSchema = Value }
+  type Aux[Key <: HList, Value <: HList] = Schema[_, _] {
+    type KeySchema = Key; type ValueSchema = Value
+  }
 }
 
-trait Schema {
+trait Schema[Entity, Key] {
   type KeySchema <: HList
   type ValueSchema <: HList
 
-  abstract class SchemaBasedSubspace[Entity, Key](
+  def toKey(entity: Entity): Key
+  def toValue(entity: Entity): ValueSchema
+  def toEntity(key: Key, value: ValueSchema): Entity
+
+  class SchemaBasedSubspace(override val subspace: Subspace)(
       implicit keyEncoder: TupleEncoder[KeySchema],
       valueEncoder: TupleEncoder[ValueSchema],
       keyDecoder: TupleDecoder[KeySchema],
-      valueDecoder: TupleDecoder[ValueSchema])
+      valueDecoder: TupleDecoder[ValueSchema],
+      keyAux: Generic.Aux[Key, KeySchema])
       extends TypedSubspace[Entity, Key] {
 
-    def toKey(entity: Entity): Key
-    def toKey(keyRepr: KeySchema): Key
-    def toSubspaceKeyRepr(key: Key): KeySchema
-    def toSubspaceValueRepr(entity: Entity): ValueSchema
-    def toEntity(key: Key, valueRepr: ValueSchema): Entity
+    def toSubspaceKeyRepr(key: Key): KeySchema = Generic[Key].to(key)
+    def toKey(keyRepr: KeySchema): Key = Generic[Key].from(keyRepr)
+
+    final override def toKey(entity: Entity): Key = Schema.this.toKey(entity)
 
     final override def toRawValue(entity: Entity): Array[Byte] =
-      valueEncoder.encode(toSubspaceValueRepr(entity)).pack()
+      valueEncoder.encode(toValue(entity)).pack()
 
     final override def toTupledKey(key: Key): Tuple =
       keyEncoder.encode(toSubspaceKeyRepr(key))
@@ -38,7 +45,7 @@ trait Schema {
 
     final override def toEntity(key: Key, value: Array[Byte]): Entity = {
       val valueRepr = valueDecoder.decode(Tuple.fromBytes(value))
-      toEntity(key, valueRepr)
+      Schema.this.toEntity(key, valueRepr)
     }
 
     def clear[P <: Product, L <: HList](range: P)(
